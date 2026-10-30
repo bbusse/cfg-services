@@ -1,0 +1,9 @@
+#!/bin/sh
+iface=""
+for p in /sys/class/net/*; do
+    [ "${p##*/}" = lo ] && continue
+    iface="${p##*/}"
+    break
+done
+ip link set dev "${iface}" up
+exec /usr/local/sbin/dhcp -interface="${iface}"

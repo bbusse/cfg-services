@@ -1,0 +1,15 @@
+#!/bin/sh
+# Turn the adapter discoverable and pairable once it is powered, the
+# timeouts in main.conf keep it that way
+i=0
+while [ "${i}" -lt 20 ]; do
+    if bluetoothctl show | awk '/Powered: yes/ { found = 1 } END { exit !found }'; then
+        bluetoothctl discoverable on
+        bluetoothctl pairable on
+        exit 0
+    fi
+    i=$((i + 1))
+    sleep 1
+done
+echo "set-bt-discoverable: no powered adapter" >&2
+exit 1

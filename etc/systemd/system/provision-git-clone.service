@@ -1,0 +1,12 @@
+[Unit]
+Description=Shallow clones queued by first-boot provisioning
+ConditionPathExists=/var/lib/provision/git-clone
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/provision-git-clone
+
+[Install]
+WantedBy=multi-user.target

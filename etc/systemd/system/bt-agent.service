@@ -1,0 +1,11 @@
+[Unit]
+Description=Accept Bluetooth pairings without a display
+Requires=bluetooth.service
+After=bluetooth.service
+
+[Service]
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=on-failure
+
+[Install]
+WantedBy=bluetooth.target

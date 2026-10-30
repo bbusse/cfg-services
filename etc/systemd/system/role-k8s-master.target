@@ -1,0 +1,5 @@
+[Unit]
+Description=Role k8s-master: Kubernetes control plane
+
+[Install]
+WantedBy=multi-user.target

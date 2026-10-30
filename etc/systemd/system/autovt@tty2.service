@@ -1,0 +1,14 @@
+[Unit]
+Description=sway on tty2
+After=systemd-user-sessions.service
+Conflicts=getty@tty2.service
+
+[Service]
+PAMName=login
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+Environment=XDG_SESSION_TYPE=wayland
+ExecStart=/usr/bin/sway
+Restart=on-failure
+RestartSec=2

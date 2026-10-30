@@ -1,0 +1,63 @@
+#!/bin/sh
+# The masters of this cluster announce _k8s-api._tcp with TXT cluster=<name>;
+# their addresses become the endpoint's name in a marked block of /etc/hosts.
+# A master counts itself in once its API server runs, or when it is the one
+# to start the cluster. When nobody answers the block stays as it was
+set -eu
+hosts="${K8S_HOSTS_FILE:-/etc/hosts}"
+found="$(MDNS_SERVICE_FILTER=_k8s-api._tcp mdns-discover --output=json \
+    --timeout="${K8S_MDNS_TIMEOUT:-5s}" 2>/dev/null | python3 -c '
+import ipaddress, json, sys
+cluster = sys.argv[1]
+seen = []
+try:
+    entries = json.load(sys.stdin)
+except ValueError:
+    entries = []
+for e in entries if isinstance(entries, list) else []:
+    if not isinstance(e, dict) or e.get("txtMap", {}).get("cluster") != cluster:
+        continue
+    try:
+        a = ipaddress.ip_address(e.get("address", ""))
+    except ValueError:
+        continue
+    if a.is_link_local or a.is_loopback:
+        continue
+    if str(a) not in seen:
+        seen.append(str(a))
+seen.sort(key=lambda a: (ipaddress.ip_address(a).version, ipaddress.ip_address(a)))
+print("\n".join(seen))
+' "${K8S_CLUSTER}")" || found=""
+
+if [ "${K8S_ROLE}" = master ] && { [ "${K8S_BOOTSTRAP}" = yes ] || [ -s /etc/kubernetes/admin.conf ]; }; then
+    own="$(ip -4 route get 192.0.2.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }')"
+    if [ -n "${own}" ]; then
+        found="$(printf '%s\n%s\n' "${own}" "${found}" | awk 'NF && !seen[$0]++')"
+    fi
+fi
+
+if [ -z "${found}" ]; then
+    echo "k8s-endpoint: no master of cluster ${K8S_CLUSTER} answered on mDNS" >&2
+    awk -v b="# k8s-endpoint ${K8S_CLUSTER} begin" '$0 == b { found = 1 } END { exit !found }' "${hosts}" 2>/dev/null
+    exit
+fi
+
+new="$(mktemp)"
+awk -v c="${K8S_CLUSTER}" '
+    $0 == "# k8s-endpoint " c " begin" { skip = 1; next }
+    $0 == "# k8s-endpoint " c " end" { skip = 0; next }
+    !skip { print }' "${hosts}" >"${new}"
+{
+    printf '# k8s-endpoint %s begin\n' "${K8S_CLUSTER}"
+    printf '%s\n' "${found}" | while read -r a; do
+        printf '%s %s\n' "${a}" "${K8S_ENDPOINT_HOST}"
+    done
+    printf '# k8s-endpoint %s end\n' "${K8S_CLUSTER}"
+} >>"${new}"
+if cmp -s "${new}" "${hosts}"; then
+    rm -f "${new}"
+else
+    cat "${new}" >"${hosts}"
+    rm -f "${new}"
+    echo "k8s-endpoint: ${K8S_ENDPOINT_HOST} is $(printf '%s\n' "${found}" | awk -v ORS=' ' 1)"
+fi

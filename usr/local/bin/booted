@@ -1,0 +1,33 @@
+#!/usr/bin/env python
+
+import os
+import socket
+import sys
+
+def signal_readiness(ip, port):
+        s = socket.socket()
+
+        try:
+            s.settimeout(3)
+            s.connect((ip,port))
+        except socket.error as msg:
+            s.close()
+            print("Could not open {}:{} {}".format(ip, port, msg))
+            return(1)
+        else:
+            s.close()
+            print("{}:{} is up".format(ip, port))
+            return(0)
+
+host = os.environ.get('SUPERVISE_HOST')
+port = os.environ.get('SUPERVISE_PORT')
+
+if not host:
+    print("You need to provide the address of the supervising host via SUPERVISE_HOST.\nAborting..")
+    sys.exit(1)
+
+if not port:
+    print("You need to provide the port of the supervising host via SUPERVISE_PORT.\nAborting..")
+    sys.exit(1)
+
+signal_readiness(host, int(port))

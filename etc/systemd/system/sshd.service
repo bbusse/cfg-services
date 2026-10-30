@@ -1,0 +1,12 @@
+[Unit]
+Description=OpenSSH server daemon
+After=net-config.service
+
+[Service]
+ExecStartPre=mount -o remount,rw /
+ExecStartPre=sleep 2
+ExecStartPre=/usr/bin/ssh-keygen -A
+# Honour sshd_config, which limits root login to loopback (see image-builder configure_sshd)
+ExecStart=/usr/sbin/sshd -D -e
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process

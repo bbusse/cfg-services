@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep the Kubernetes control-plane endpoint resolvable
+PartOf=role-k8s-master.target role-k8s-client.target
+
+[Timer]
+OnActiveSec=0
+OnUnitActiveSec=60s
+
+[Install]
+WantedBy=role-k8s-master.target role-k8s-client.target

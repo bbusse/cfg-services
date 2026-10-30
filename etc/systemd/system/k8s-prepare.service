@@ -1,0 +1,13 @@
+[Unit]
+Description=Kernel, containerd and kubelet settings for Kubernetes
+ConditionPathExists=/etc/provision/k8s.conf
+After=systemd-networkd.service systemd-resolved.service
+PartOf=role-k8s-master.target role-k8s-client.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/k8s-prepare
+
+[Install]
+WantedBy=role-k8s-master.target role-k8s-client.target

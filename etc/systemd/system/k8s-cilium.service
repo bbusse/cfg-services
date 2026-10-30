@@ -1,0 +1,17 @@
+[Unit]
+Description=Install Cilium from the bootstrap master
+ConditionPathExists=/etc/provision/k8s.conf
+After=k8s-master.service
+Requires=k8s-master.service
+PartOf=role-k8s-master.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/k8s-cilium
+Restart=on-failure
+RestartSec=60
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=role-k8s-master.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Resolve the Kubernetes control-plane endpoint
+ConditionPathExists=/etc/provision/k8s.conf
+Wants=network-online.target
+After=network-online.target k8s-prepare.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/k8s-endpoint

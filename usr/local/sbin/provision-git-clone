@@ -1,0 +1,51 @@
+#!/bin/sh
+# Shallow clones what provisioner fetch queued in /var/lib/provision/git-clone
+# (user, URL, destination, ref per line, tab separated), each as its user.
+# A destination that exists is left alone, what failed stays queued for the
+# next run
+list="${PROVISION_GIT_CLONE_LIST:-/var/lib/provision/git-clone}"
+warn() { echo "provision-git-clone: $*" >&2; }
+
+[ -s "${list}" ] || exit 0
+command -v git >/dev/null 2>&1 || {
+    warn "git not installed, cannot clone"
+    exit 1
+}
+
+left="$(mktemp)" || exit 1
+tab="$(printf '\t')"
+rc=0
+while IFS="${tab}" read -r user url dest ref; do
+    [ -n "${user}" ] && [ -n "${url}" ] && [ -n "${dest}" ] || continue
+    home="$(getent passwd "${user}" | cut -d: -f6)"
+    if [ -z "${home}" ]; then
+        warn "no user ${user}, dropping ${url}"
+        continue
+    fi
+    case "${dest}" in
+    \~/*) dest="${home}/${dest#??}" ;;
+    esac
+    if [ -e "${dest}" ]; then
+        echo "provision-git-clone: ${dest} exists, leaving it"
+        continue
+    fi
+    set -- git clone --quiet --depth 1
+    if [ -n "${ref}" ]; then
+        set -- "$@" --branch "${ref}"
+    fi
+    if runuser -u "${user}" -- mkdir -p "$(dirname "${dest}")" &&
+        runuser -u "${user}" -- "$@" -- "${url}" "${dest}"; then
+        echo "provision-git-clone: cloned ${url} to ${dest}"
+    else
+        warn "could not clone ${url} to ${dest}"
+        printf '%s\t%s\t%s\t%s\n' "${user}" "${url}" "${dest}" "${ref}" >>"${left}"
+        rc=1
+    fi
+done <"${list}"
+
+if [ -s "${left}" ]; then
+    mv -f "${left}" "${list}"
+else
+    rm -f "${left}" "${list}"
+fi
+exit "${rc}"

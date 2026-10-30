@@ -1,0 +1,11 @@
+[Unit]
+Description=Print network interface state to the console
+After=network.target
+
+[Service]
+Type=oneshot
+StandardOutput=journal+console
+ExecStart=/bin/sh -c 'echo "=== network-debug: interfaces ==="; ip -br link; echo "=== network-debug: addresses ==="; ip -br addr'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Bring this node into its Kubernetes cluster as master
+ConditionPathExists=/etc/provision/k8s.conf
+ConditionPathExists=|!/etc/kubernetes/kubelet.conf
+ConditionPathExists=|/var/lib/provision/k8s-attempt
+Wants=network-online.target containerd.service
+After=network-online.target containerd.service k8s-prepare.service k8s-endpoint.service
+Requires=k8s-prepare.service
+PartOf=role-k8s-master.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/local/sbin/k8s-endpoint
+ExecStart=/usr/local/sbin/k8s-node
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=role-k8s-master.target

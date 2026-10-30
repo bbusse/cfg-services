@@ -1,0 +1,11 @@
+[Unit]
+Description=Default audio to the DAC POT board or HDMI at 50%
+After=pipewire-pulse.service wireplumber.service
+Wants=wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/set-default-audio
+
+[Install]
+WantedBy=default.target

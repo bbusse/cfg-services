@@ -1,0 +1,15 @@
+[Unit]
+Description=mpv playing the TV playlist
+ConditionPathExists=/etc/systemd/system/multi-user.target.wants/role-tv.target
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service
+
+[Service]
+Environment=URL_TV=https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/iptv/clean/clean_tv.m3u
+ExecStartPre=/usr/local/bin/tv-playlist %t/mpv-tv.m3u
+ExecStart=/usr/bin/mpv --fs --quiet --input-ipc-server=%t/mpv-tv.sock %t/mpv-tv.m3u
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=sway-session.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Static Network Configuration
+
+[Install]
+WantedBy=network.target
+
+[Service]
+Type=oneshot
+# Hack: The path condition does not work as intended yet
+ExecStart=/bin/sleep 3
+ExecStart=/bin/ip link set dev ${NET_DEVICE} up
+ExecStart=/bin/ip addr add ${NET_ADDRESS} dev ${NET_DEVICE}
+ExecStart=/bin/ip route add default via ${NET_GATEWAY}

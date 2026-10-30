@@ -1,0 +1,15 @@
+#!/bin/sh
+# Make the DAC POT board the default sink at 50%, retrying until it appears
+want=hdmi
+[ -e /proc/asound/pine64dacpot ] && want=sound-dac
+i=0
+while [ "${i}" -lt 10 ]; do
+    s="$(pactl list short sinks | awk -v w="${want}" 'index($2, w) { print $2; exit }')"
+    if [ -n "${s}" ]; then
+        pactl set-default-sink "${s}"
+        pactl set-sink-volume "${s}" 50%
+        break
+    fi
+    i=$((i + 1))
+    sleep 1
+done

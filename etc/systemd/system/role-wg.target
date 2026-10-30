@@ -1,0 +1,5 @@
+[Unit]
+Description=Role wg: WireGuard tunnel wg0
+
+[Install]
+WantedBy=multi-user.target

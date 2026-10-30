@@ -1,0 +1,14 @@
+#!/bin/sh
+# Keeps the control-plane endpoint's name resolvable the way the cluster says,
+# one script per method in /usr/local/lib/k8s-endpoint
+set -eu
+set -a
+# shellcheck source=/dev/null
+. "${K8S_CONF:-/etc/provision/k8s.conf}"
+set +a
+lib="${K8S_ENDPOINT_LIB:-/usr/local/lib/k8s-endpoint}"
+if [ ! -x "${lib}/${K8S_ENDPOINT_METHOD}" ]; then
+    echo "k8s-endpoint: no method ${K8S_ENDPOINT_METHOD} in ${lib}" >&2
+    exit 1
+fi
+exec "${lib}/${K8S_ENDPOINT_METHOD}"

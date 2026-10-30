@@ -1,0 +1,19 @@
+#!/bin/sh
+# Cap every raop sink at 40%, lowering only those that come up higher so a
+# quieter manual level still sticks
+max=40
+cap() {
+    pactl list short sinks | awk '/raop/ { print $2 }' | while read -r s; do
+        v="$(pactl get-sink-volume "${s}" 2>/dev/null |
+            awk -F/ 'NR == 1 { gsub(/[ %]/, "", $2); print $2 + 0; exit }')"
+        if [ -n "${v}" ] && [ "${v}" -gt "${max}" ]; then
+            pactl set-sink-volume "${s}" "${max}%"
+        fi
+    done
+}
+cap
+pactl subscribe 2>/dev/null | while read -r ev; do
+    case "${ev}" in
+    *"on sink"*) cap ;;
+    esac
+done

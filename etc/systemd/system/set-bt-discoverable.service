@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep the Bluetooth adapter discoverable and pairable
+Requires=bluetooth.service
+After=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/set-bt-discoverable
+
+[Install]
+WantedBy=bluetooth.target

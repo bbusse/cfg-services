@@ -1,0 +1,11 @@
+[Unit]
+Description=Signal readiness to host
+After=net-config.service
+
+[Service]
+Type=oneshot
+ExecStart=sleep 5
+ExecStart=/usr/local/bin/booted
+
+[Install]
+WantedBy=getty.target

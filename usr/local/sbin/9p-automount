@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# Mount every virtio-9p share the host exported, at the path its mount tag
+# spells out. A tag that does not look like a path is skipped rather than
+# guessed at: 9p tags are free-form and something else may have set one
+
+set -u
+
+status=0
+
+for attr in /sys/bus/virtio/devices/*/mount_tag; do
+    [ -r "${attr}" ] || continue
+
+    # sysfs NUL-terminates the attribute and command substitution drops the
+    # byte with a warning, so strip it here instead
+    tag="$(tr -d '\0' <"${attr}")" || continue
+    [ -n "${tag}" ] || continue
+
+    # ~ crosses the wire literally, because only this side knows whose home
+    # it means, and on these images that is root's
+    # shellcheck disable=SC2088
+    case "${tag}" in
+    /*) target="${tag}" ;;
+    "~") target="/root" ;;
+    "~/"*) target="/root/${tag#\~/}" ;;
+    *) continue ;;
+    esac
+
+    if mountpoint -q "${target}" 2>/dev/null; then
+        continue
+    fi
+
+    if ! mkdir -p "${target}"; then
+        printf '9p-automount: cannot create %s\n' "${target}" >&2
+        status=1
+        continue
+    fi
+
+    # No cache= on purpose: the default keeps the guest seeing host edits as
+    # they happen, which is the point of sharing a source tree. It costs mmap
+    # on the share, so binaries cannot be executed from one
+    if ! mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144 \
+        "${tag}" "${target}"; then
+        printf '9p-automount: failed to mount %s at %s\n' "${tag}" "${target}" >&2
+        status=1
+        continue
+    fi
+
+    printf '9p-automount: mounted %s at %s\n' "${tag}" "${target}"
+done
+
+exit "${status}"

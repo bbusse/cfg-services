@@ -1,0 +1,9 @@
+[Unit]
+Description=gokrazy DHCP client
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/net-dhcp
+
+[Install]
+WantedBy=multi-user.target

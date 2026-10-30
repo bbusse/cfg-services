@@ -1,0 +1,8 @@
+[Unit]
+Description=Monitor network interface
+
+[Path]
+Unit=net-config.service
+
+[Install]
+WantedBy=getty.target

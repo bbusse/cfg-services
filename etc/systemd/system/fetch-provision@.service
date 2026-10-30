@@ -1,0 +1,14 @@
+[Unit]
+Description=First-boot fetch of provisioning from the provisioning host for %i (user, hostname, ssh keys, WireGuard)
+ConditionFirstBoot=yes
+After=network-online.target
+Wants=network-online.target
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+ExecStart=/usr/local/bin/provisioner fetch %i
+
+[Install]
+WantedBy=multi-user.target

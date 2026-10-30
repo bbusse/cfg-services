@@ -1,0 +1,39 @@
+#!/bin/sh
+# Kernel and containerd settings kubeadm expects
+set -eu
+# shellcheck source=/dev/null
+. /etc/provision/k8s.conf
+
+# A kernel without modules has them built in and modprobe fails on it
+load() {
+    if modprobe "${1}" 2>/dev/null; then
+        printf '%s\n' "${1}" >>/etc/modules-load.d/k8s.conf
+    elif [ ! -e "${2}" ]; then
+        modprobe "${1}"
+    fi
+}
+mkdir -p /etc/modules-load.d /etc/sysctl.d
+: >/etc/modules-load.d/k8s.conf
+load overlay /sys/module/overlay
+load br_netfilter /proc/sys/net/bridge
+cat >/etc/sysctl.d/90-k8s.conf <<SYSCTL
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+SYSCTL
+sysctl -q -p /etc/sysctl.d/90-k8s.conf
+
+mkdir -p /etc/containerd
+if [ ! -s /etc/containerd/config.toml ]; then
+    containerd config default >/etc/containerd/config.toml.new
+    mv /etc/containerd/config.toml.new /etc/containerd/config.toml
+fi
+awk '{ sub(/SystemdCgroup = false/, "SystemdCgroup = true") } 1' /etc/containerd/config.toml >/etc/containerd/config.toml.new
+if cmp -s /etc/containerd/config.toml.new /etc/containerd/config.toml; then
+    rm -f /etc/containerd/config.toml.new
+else
+    mv /etc/containerd/config.toml.new /etc/containerd/config.toml
+    systemctl restart containerd.service
+fi
+systemctl enable --now containerd.service

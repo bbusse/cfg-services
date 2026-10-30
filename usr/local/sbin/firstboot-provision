@@ -1,0 +1,101 @@
+#!/bin/sh
+# Runs once from firstboot-provision@<user>.service, credentials arrive in
+# $CREDENTIALS_DIRECTORY via ImportCredential=firstboot.*
+set -eu
+
+cred() {
+    if [ -n "${CREDENTIALS_DIRECTORY:-}" ] && [ -r "${CREDENTIALS_DIRECTORY}/${1}" ]; then
+        cat "${CREDENTIALS_DIRECTORY}/${1}"
+    else
+        printf '%s' "${2}"
+    fi
+}
+
+# Grow root to the end of the disk, only when it is the last partition.
+# sysfs and blkid only, udev has not necessarily settled this early
+root_src="$(findmnt -no SOURCE /)"
+# A ZFS root is a dataset, grow the partition holding its pool
+pool=""
+if [ "$(findmnt -no FSTYPE /)" = "zfs" ]; then
+    pool="${root_src%%/*}"
+    root_src="$(zpool list -HPLv "${pool}" | awk '$1 ~ /^\/dev\// { print $1; exit }')"
+fi
+root_part="${root_src##*/}"
+# Two copies of one image are indistinguishable by PARTUUID, so the kernel
+# may have mounted the copy that was not booted. Growing that one leaves a
+# filesystem larger than its partition on the other medium
+twin=""
+root_uuid="$(blkid -o value -s PARTUUID "${root_src}" || true)"
+for p in /sys/class/block/*/partition; do
+    name="$(basename "$(dirname "${p}")")"
+    [ "${name}" = "${root_part}" ] && continue
+    if [ -n "${root_uuid}" ] && [ "$(blkid -o value -s PARTUUID "/dev/${name}" || true)" = "${root_uuid}" ]; then
+        twin="/dev/${name}"
+        break
+    fi
+done
+if [ -n "${twin}" ]; then
+    echo "firstboot-provision: not growing ${root_src}, ${twin} carries the same PARTUUID" >&2
+elif [ -r "/sys/class/block/${root_part}/partition" ]; then
+    partno="$(cat "/sys/class/block/${root_part}/partition")"
+    disk_name="$(basename "$(readlink -f "/sys/class/block/${root_part}/..")")"
+    last="$(cat /sys/class/block/"${disk_name}"*/partition | sort -n | tail -1)"
+    if [ "${partno}" = "${last}" ]; then
+        # sfdisk moves the backup GPT header to the end of the medium itself
+        printf ', +\n' | sfdisk --no-reread --force -N "${partno}" "/dev/${disk_name}" >/dev/null || true
+        partx -u "/dev/${disk_name}" || true
+        if [ -n "${pool}" ]; then
+            zpool online -e "${pool}" "${root_src}" || true
+        else
+            # Grows xfs, ext4 and btrfs through kernel ioctls, no fs tools needed
+            /usr/lib/systemd/systemd-growfs / || true
+        fi
+    fi
+fi
+
+# The pool was created by the build host's ZFS, which may lack features
+# this kernel's has
+if [ -n "${pool}" ]; then
+    zpool upgrade "${pool}" >/dev/null || true
+fi
+
+# 0 disables. ZFS can not swap to a file, a ZFS root gets no swapfile
+size="$(cred firstboot.swapfile-size 4G)"
+if [ -z "${pool}" ] && [ "${size}" != "0" ] && [ ! -e /swapfile ]; then
+    if fallocate -l "${size}" /swapfile; then
+        chmod 0600 /swapfile
+        mkswap -q /swapfile
+        systemctl start swapfile.swap || true
+    else
+        rm -f /swapfile
+    fi
+fi
+
+# Per-device local root key: the image user gets passwordless ssh to
+# root@localhost. Generated here, not at build, so no key is shared across
+# devices. The authorized_keys entry is pinned to loopback, so even a leaked
+# private key cannot be used to reach root from another host
+user="${1:-}"
+if [ -n "${user}" ] && [ -d "/home/${user}" ]; then
+    key="/home/${user}/.ssh/id_local_root"
+    if [ ! -e "${key}" ]; then
+        install -d -m 0700 -o "${user}" -g "${user}" "/home/${user}/.ssh"
+        ssh-keygen -t ed25519 -N "" -C "local-root@${user}" -f "${key}" >/dev/null
+        chown "${user}:${user}" "${key}" "${key}.pub"
+        chmod 0600 "${key}"
+        install -d -m 0700 /root/.ssh
+        printf 'from="127.0.0.1,::1" %s\n' "$(cat "${key}.pub")" \
+            >>/root/.ssh/authorized_keys
+        chmod 0600 /root/.ssh/authorized_keys
+        cfg="/home/${user}/.ssh/config"
+        if [ ! -e "${cfg}" ]; then
+            cat >"${cfg}" <<'SSHCFG'
+Match host localhost,127.0.0.1,::1 user root
+    IdentityFile ~/.ssh/id_local_root
+    IdentitiesOnly yes
+SSHCFG
+            chown "${user}:${user}" "${cfg}"
+            chmod 0600 "${cfg}"
+        fi
+    fi
+fi

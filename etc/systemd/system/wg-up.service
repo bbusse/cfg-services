@@ -1,0 +1,14 @@
+[Unit]
+Description=Bring up WireGuard wg0
+After=systemd-networkd.service
+Requires=systemd-networkd.service
+PartOf=role-wg.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /usr/bin/networkctl up wg0 && exit 0; sleep 3; done; exit 1'
+ExecStop=/usr/bin/networkctl down wg0
+
+[Install]
+WantedBy=role-wg.target

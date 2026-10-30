@@ -1,0 +1,84 @@
+#!/bin/sh
+# Brings this node into its cluster once: the bootstrap master runs kubeadm
+# init, another master joins as control plane, a client joins as a node. A
+# failed attempt is reset before the next one, and a master's shared PKI is
+# put back from /etc/provision/k8s-pki each time. A master announces its API
+# server over DNS-SD once it runs
+set -eu
+# shellcheck source=/dev/null
+. /etc/provision/k8s.conf
+
+announce() {
+    mkdir -p /etc/systemd/dnssd /etc/systemd/resolved.conf.d /etc/systemd/network/20-dhcp.network.d
+    cat >/etc/systemd/dnssd/k8s-api.dnssd <<DNSSD
+[Service]
+Name=%H
+Type=_k8s-api._tcp
+Port=6443
+TxtText=cluster=${K8S_CLUSTER}
+DNSSD
+    printf '[Resolve]\nMulticastDNS=yes\n' >/etc/systemd/resolved.conf.d/k8s-mdns.conf
+    printf '[Network]\nMulticastDNS=yes\n' >/etc/systemd/network/20-dhcp.network.d/k8s-mdns.conf
+    networkctl reload
+    systemctl restart systemd-resolved.service
+}
+
+if [ -s /etc/kubernetes/kubelet.conf ] && [ ! -e /var/lib/provision/k8s-attempt ]; then
+    exit 0
+fi
+if [ -e /var/lib/provision/k8s-attempt ]; then
+    kubeadm reset -f >/dev/null 2>&1 || true
+fi
+mkdir -p /var/lib/provision
+touch /var/lib/provision/k8s-attempt
+
+set -- --ignore-preflight-errors=Swap
+if [ "${K8S_ROLE}" = master ]; then
+    mkdir -p /etc/kubernetes
+    rm -rf /etc/kubernetes/pki
+    cp -a /etc/provision/k8s-pki /etc/kubernetes/pki
+fi
+
+if [ "${K8S_ROLE}" = master ] && [ "${K8S_BOOTSTRAP}" = yes ]; then
+    cat >/etc/kubernetes/kubeadm-init.yaml <<YAML
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+bootstrapTokens:
+  - token: "${K8S_TOKEN}"
+    ttl: "0s"
+    usages: [signing, authentication]
+    groups: [system:bootstrappers:kubeadm:default-node-token]
+nodeRegistration:
+  name: "$(hostname)"
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: "${K8S_CLUSTER}"
+controlPlaneEndpoint: "${K8S_ENDPOINT}"
+networking:
+  podSubnet: "${K8S_POD_CIDR}"
+  serviceSubnet: "${K8S_SERVICE_CIDR}"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+failSwapOn: false
+memorySwap:
+  swapBehavior: NoSwap
+YAML
+    kubeadm init --config /etc/kubernetes/kubeadm-init.yaml "$@"
+    mkdir -p /root/.kube
+    install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
+    announce
+elif [ "${K8S_ROLE}" = master ]; then
+    kubeadm join "${K8S_ENDPOINT}" --control-plane --token "${K8S_TOKEN}" \
+        --discovery-token-ca-cert-hash "${K8S_CA_CERT_HASH}" "$@"
+    mkdir -p /root/.kube
+    install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
+    announce
+else
+    kubeadm join "${K8S_ENDPOINT}" --token "${K8S_TOKEN}" \
+        --discovery-token-ca-cert-hash "${K8S_CA_CERT_HASH}" "$@"
+fi
+rm -f /var/lib/provision/k8s-attempt
+echo "k8s-node: $(hostname) is in cluster ${K8S_CLUSTER} as ${K8S_ROLE}"

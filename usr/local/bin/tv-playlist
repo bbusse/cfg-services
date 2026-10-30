@@ -1,0 +1,40 @@
+#!/bin/sh
+set -e
+src="$(curl -fsSL "${URL_TV}")"
+printf '%s\n' "${src}" | awk -v list="${TV_WHITELIST}" '
+function key(s) {
+    gsub(/[[:space:]]/, "", s)
+    return tolower(s)
+}
+BEGIN {
+    n = split(list, w, ",")
+    for (i = 1; i <= n; i++)
+        if (!(key(w[i]) in want))
+            want[key(w[i])] = i
+}
+/^#EXTINF/ {
+    info = $0
+    name = $0
+    sub(/.*,/, "", name)
+    next
+}
+/^#/ || !NF {
+    next
+}
+info != "" {
+    k = key(name)
+    if (!n)
+        out[++m] = info "\n" $0
+    else if ((k in want) && !(want[k] in out))
+        out[want[k]] = info "\n" $0
+    info = ""
+}
+END {
+    print "#EXTM3U"
+    for (i = 1; i <= (n ? n : m); i++)
+        if (i in out) {
+            print out[i]
+            found++
+        }
+    exit !found
+}' >"${1}"

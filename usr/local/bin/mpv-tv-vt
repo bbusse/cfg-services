@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+card=""
+for s in /sys/class/drm/card*-*/status; do
+    if [ -f "${s}" ] && [ "$(cat "${s}")" = connected ]; then
+        card="/dev/dri/$(basename "$(dirname "${s}")" | cut -d- -f1)"
+        break
+    fi
+done
+/usr/local/bin/tv-playlist "${run}/mpv-tv.m3u"
+exec /usr/bin/mpv --profile=vt ${card:+"--drm-device=${card}"} --drm-mode=1920x1080@50 --fs --quiet \
+    --input-ipc-server="${run}/mpv-tv.sock" "${run}/mpv-tv.m3u"

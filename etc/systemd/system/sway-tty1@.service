@@ -1,0 +1,19 @@
+[Unit]
+Description=sway on tty1 as %i
+After=systemd-user-sessions.service
+Conflicts=getty@tty1.service autovt@tty1.service
+
+[Service]
+User=%i
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Environment=XDG_SESSION_TYPE=wayland
+EnvironmentFile=-/home/%i/.config/environment.d/50-provision.conf
+ExecStart=/usr/bin/sway
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target
