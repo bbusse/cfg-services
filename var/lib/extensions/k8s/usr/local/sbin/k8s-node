@@ -32,12 +32,54 @@ fi
 mkdir -p /var/lib/provision
 touch /var/lib/provision/k8s-attempt
 
-set -- --ignore-preflight-errors=Swap
+# Without an IPv4 default route the node uses the stable global IPv6 address
+# of its IPv6 default route, a ULA before others, otherwise kubeadm picks the
+# address as before
+node_ip=""
+kubelet_args="[]"
+if [ -z "$(ip -4 route show default)" ]; then
+    dev="$(ip -6 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+    if [ -n "${dev}" ]; then
+        node_ip="$(ip -6 addr show dev "${dev}" scope global | awk '
+            $1 == "inet6" && !/temporary|deprecated|tentative/ {
+                sub(/\/.*/, "", $2)
+                if ($2 ~ /^f[cd]/) { print $2; found = 1; exit }
+                if (first == "") first = $2
+            }
+            END { if (!found && first != "") print first }')"
+    fi
+    if [ -z "${node_ip}" ]; then
+        echo "k8s-node: no default route with a global address" >&2
+        exit 1
+    fi
+    kubelet_args="[{name: node-ip, value: \"${node_ip}\"}]"
+fi
+
+mkdir -p /etc/kubernetes
 if [ "${K8S_ROLE}" = master ]; then
-    mkdir -p /etc/kubernetes
     rm -rf /etc/kubernetes/pki
     cp -a /etc/provision/k8s-pki /etc/kubernetes/pki
 fi
+
+join() {
+    cat >/etc/kubernetes/kubeadm-join.yaml <<YAML
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: JoinConfiguration
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: "${K8S_ENDPOINT}"
+    token: "${K8S_TOKEN}"
+    caCertHashes: ["${K8S_CA_CERT_HASH}"]
+nodeRegistration:
+  name: "$(hostname)"
+  ignorePreflightErrors: [Swap]
+  kubeletExtraArgs: ${kubelet_args}
+YAML
+    if [ "${K8S_ROLE}" = master ]; then
+        printf 'controlPlane:\n  localAPIEndpoint:\n    advertiseAddress: "%s"\n' "${node_ip}" >>/etc/kubernetes/kubeadm-join.yaml
+    fi
+    kubeadm join --config /etc/kubernetes/kubeadm-join.yaml
+}
 
 if [ "${K8S_ROLE}" = master ] && [ "${K8S_BOOTSTRAP}" = yes ]; then
     cat >/etc/kubernetes/kubeadm-init.yaml <<YAML
@@ -48,8 +90,12 @@ bootstrapTokens:
     ttl: "0s"
     usages: [signing, authentication]
     groups: [system:bootstrappers:kubeadm:default-node-token]
+localAPIEndpoint:
+  advertiseAddress: "${node_ip}"
 nodeRegistration:
   name: "$(hostname)"
+  ignorePreflightErrors: [Swap]
+  kubeletExtraArgs: ${kubelet_args}
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
@@ -66,19 +112,17 @@ failSwapOn: false
 memorySwap:
   swapBehavior: NoSwap
 YAML
-    kubeadm init --config /etc/kubernetes/kubeadm-init.yaml "$@"
+    kubeadm init --config /etc/kubernetes/kubeadm-init.yaml
     mkdir -p /root/.kube
     install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
     announce
 elif [ "${K8S_ROLE}" = master ]; then
-    kubeadm join "${K8S_ENDPOINT}" --control-plane --token "${K8S_TOKEN}" \
-        --discovery-token-ca-cert-hash "${K8S_CA_CERT_HASH}" "$@"
+    join
     mkdir -p /root/.kube
     install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
     announce
 else
-    kubeadm join "${K8S_ENDPOINT}" --token "${K8S_TOKEN}" \
-        --discovery-token-ca-cert-hash "${K8S_CA_CERT_HASH}" "$@"
+    join
 fi
 rm -f /var/lib/provision/k8s-attempt
 echo "k8s-node: $(hostname) is in cluster ${K8S_CLUSTER} as ${K8S_ROLE}"

@@ -22,7 +22,34 @@ net.ipv6.conf.all.forwarding = 1
 net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 SYSCTL
+# With forwarding on the kernel ignores RAs unless accept_ra is 2
+egress="$(ip -6 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+if [ -n "${egress}" ]; then
+    printf 'net.ipv6.conf.%s.accept_ra = 2\n' "${egress}" >>/etc/sysctl.d/90-k8s.conf
+fi
 sysctl -q -p /etc/sysctl.d/90-k8s.conf
+
+if [ -n "${K8S_PROXY:-}" ]; then
+    no_proxy="localhost,::1,${K8S_POD_CIDR},${K8S_SERVICE_CIDR},${K8S_ENDPOINT_HOST},.svc,.cluster.local"
+    if [ -n "${K8S_NO_PROXY:-}" ]; then
+        no_proxy="${K8S_NO_PROXY},${no_proxy}"
+    fi
+    dropin=/etc/systemd/system/containerd.service.d/proxy.conf
+    mkdir -p "${dropin%/*}"
+    cat >"${dropin}.new" <<UNIT
+[Service]
+Environment=HTTP_PROXY=${K8S_PROXY}
+Environment=HTTPS_PROXY=${K8S_PROXY}
+Environment=NO_PROXY=${no_proxy}
+UNIT
+    if cmp -s "${dropin}.new" "${dropin}"; then
+        rm -f "${dropin}.new"
+    else
+        mv "${dropin}.new" "${dropin}"
+        systemctl daemon-reload
+        systemctl try-restart containerd.service
+    fi
+fi
 
 mkdir -p /etc/containerd
 if [ ! -s /etc/containerd/config.toml ]; then
