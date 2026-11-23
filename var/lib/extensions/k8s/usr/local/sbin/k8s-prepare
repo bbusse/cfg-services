@@ -52,11 +52,43 @@ UNIT
 fi
 
 mkdir -p /etc/containerd
+# zot, a cluster's pull-through cache, is a NodePort and so at every node's
+# localhost:30500, with each registry below its own path. containerd looks a
+# tag up at the registry, as zot never asks again for one it has, and then
+# gets the image from zot. What zot does not have or does not answer for
+# comes from the registry, so a cluster without zot loses nothing. The
+# registries are the ones zot's config has. containerd reads the files for
+# every pull, a change needs no restart
+mirror=http://localhost:30500
+certs=/etc/containerd/certs.d
+for registry in docker.io ghcr.io quay.io registry.k8s.io data.forgejo.org; do
+    server="https://${registry}"
+    if [ "${registry}" = docker.io ]; then
+        server=https://registry-1.docker.io
+    fi
+    mkdir -p "${certs}/${registry}"
+    cat >"${certs}/${registry}/hosts.toml.new" <<HOSTS
+server = "${server}"
+
+[host."${mirror}/v2/${registry}"]
+  capabilities = ["pull"]
+  override_path = true
+  dial_timeout = "2s"
+HOSTS
+    mv "${certs}/${registry}/hosts.toml.new" "${certs}/${registry}/hosts.toml"
+done
+
 if [ ! -s /etc/containerd/config.toml ]; then
     containerd config default >/etc/containerd/config.toml.new
     mv /etc/containerd/config.toml.new /etc/containerd/config.toml
 fi
-awk '{ sub(/SystemdCgroup = false/, "SystemdCgroup = true") } 1' /etc/containerd/config.toml >/etc/containerd/config.toml.new
+# config_path is empty by default, and the hosts.toml files unread. Only the
+# CRI plugin's registry section gets it, the one whose name ends in .registry
+awk -v certs="${certs}" '
+    /^[[:space:]]*\[/ { registry = /\.registry\][[:space:]]*$/ }
+    registry && /^[[:space:]]*config_path = / { sub(/config_path = .*/, "config_path = \"" certs "\"") }
+    { sub(/SystemdCgroup = false/, "SystemdCgroup = true") }
+    1' /etc/containerd/config.toml >/etc/containerd/config.toml.new
 if cmp -s /etc/containerd/config.toml.new /etc/containerd/config.toml; then
     rm -f /etc/containerd/config.toml.new
 else
