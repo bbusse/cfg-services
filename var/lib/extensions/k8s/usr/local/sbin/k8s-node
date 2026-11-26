@@ -32,12 +32,13 @@ fi
 mkdir -p /var/lib/provision
 touch /var/lib/provision/k8s-attempt
 
-# Without an IPv4 default route the node uses the stable global IPv6 address
-# of its IPv6 default route, a ULA before others, otherwise kubeadm picks the
-# address as before
+# In an IPv6 cluster, or without an IPv4 default route, the node uses the
+# stable global IPv6 address of its IPv6 default route, a ULA before others,
+# otherwise kubeadm picks the address as before. A node on a dual stack LAN
+# would register its IPv4 address, which the rest of an IPv6 cluster can't reach
 node_ip=""
 kubelet_args="[]"
-if [ -z "$(ip -4 route show default)" ]; then
+if [ "${K8S_SERVICE_CIDR#*:}" != "${K8S_SERVICE_CIDR}" ] || [ -z "$(ip -4 route show default)" ]; then
     dev="$(ip -6 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
     if [ -n "${dev}" ]; then
         node_ip="$(ip -6 addr show dev "${dev}" scope global | awk '
